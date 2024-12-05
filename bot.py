@@ -133,7 +133,7 @@ async def handle_success_question(update: Update, context: ContextTypes.DEFAULT_
     context.user_data['state'] = 'DISTANCE'
     print(f"DEBUG: Ответ на вопрос о заказе: {query.data} (текущее состояние: {context.user_data['state']})")
 
-    await query.message.reply_text("Введите расстояние до центра Самары (в километрах, можно с десятичной точкой):")
+    await query.message.reply_text("Введите расстояние до центра Самары (Только с десятичной точкой):")
 
 
 async def handle_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -156,7 +156,7 @@ async def handle_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['state'] = 'COMMENT'
 
         print(f"DEBUG: Получено расстояние: {distance} км (текущее состояние: {context.user_data['state']})")
-        await update.message.reply_text("Оставьте комментарий (если комментария нет, оставьте поле пустым):")
+        await update.message.reply_text("Оставьте комментарий (если комментария нет, поставьте прочерк - :")
     except ValueError:
         await update.message.reply_text("Пожалуйста, введите корректное число для расстояния.")
 
