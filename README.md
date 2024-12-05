@@ -21,7 +21,9 @@
 
 С хостом всё проще, я взял хост Amvera - https://amvera.ru/
 Он позволяет используя существующий репозиторий гитхаба на своей базе собрать ваш проект.
-Используя команду - **`git remote add amvera https://git.amvera.ru/nickname/projectname`** 
+Используя команду -
+
+**`git remote add amvera https://git.amvera.ru/nickname/projectname`** 
 
 Он начнёт сборку 
 ![{1D481AA8-906A-472C-8336-A84C8BF515DD}](https://github.com/user-attachments/assets/001ea85c-a68d-420a-b001-1c7aaf9b261a)
