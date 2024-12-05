@@ -3,6 +3,14 @@ from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 import requests
+import logging
+
+# === Логирование ===
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -13,286 +21,184 @@ COMPANY_GROUP_ID = int(os.getenv("COMPANY_GROUP_ID"))
 
 YANDEX_DISK_API_URL = "https://cloud-api.yandex.net/v1/disk/resources"
 
-
-# === Вспомогательные функции для Яндекс.Диска ===
-
+# === Вспомогательные функции для работы с Яндекс.Диском ===
 def check_folder_exists(order_number):
-    """Проверка, существует ли папка на Яндекс.Диске."""
+    logger.info(f"Проверка существования папки для заказа: {order_number}")
     headers = {"Authorization": f"OAuth {YANDEX_DISK_TOKEN}"}
     response = requests.get(f"{YANDEX_DISK_API_URL}?path={order_number}", headers=headers)
-    print(f"DEBUG: Проверка папки для заказа {order_number}, статус: {response.status_code}")
+    if response.status_code == 200:
+        logger.info(f"Папка {order_number} существует.")
+    else:
+        logger.warning(f"Папка {order_number} не найдена.")
     return response.status_code == 200
 
 
 def upload_to_yandex_disk(order_number, file_path, file_name):
-    """Загрузка файла на Яндекс.Диск."""
+    logger.info(f"Попытка загрузить файл {file_name} в папку {order_number} на Яндекс.Диск.")
     headers = {"Authorization": f"OAuth {YANDEX_DISK_TOKEN}"}
     response = requests.get(
         f"{YANDEX_DISK_API_URL}/upload?path={order_number}/{file_name}&overwrite=true",
         headers=headers
     )
-    print(f"DEBUG: Попытка получить ссылку на загрузку для {file_name}, статус: {response.status_code}")
     if response.status_code == 200:
         upload_url = response.json().get("href")
+        logger.info(f"Получена ссылка для загрузки файла: {upload_url}")
         with open(file_path, "rb") as f:
             upload_response = requests.put(upload_url, files={"file": f})
-            print(f"DEBUG: Попытка загрузить файл на Яндекс.Диск, статус: {upload_response.status_code}")
-            return upload_response.status_code == 201
+            if upload_response.status_code == 201:
+                logger.info(f"Файл {file_name} успешно загружен.")
+                return True
+            else:
+                logger.error(f"Ошибка загрузки файла {file_name}: {upload_response.status_code}")
+    else:
+        logger.error(f"Не удалось получить ссылку для загрузки файла {file_name}.")
     return False
 
 
 # === Основные функции бота ===
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Начало нового заказа."""
-    print("DEBUG: Вызвана функция start()")
+    logger.info(f"Пользователь {update.effective_user.username} начал новый заказ.")
     await update.message.reply_text(
-        "Привет! Пожалуйста, загрузите фото с выполнения заказа. Вы можете загрузить несколько фотографий. Нажмите 'Завершить загрузку фото', когда закончите.",
+        "Привет! Пожалуйста, загрузите фото или видео с выполнения заказа. Вы можете загрузить несколько файлов. Нажмите 'Завершить загрузку', когда закончите.",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Завершить загрузку фото", callback_data="finish_photos")],
+            [InlineKeyboardButton("Завершить загрузку", callback_data="finish_media")],
             [InlineKeyboardButton("Отменить", callback_data="cancel")]
         ])
     )
-    context.user_data['state'] = 'PHOTO'
-    context.user_data['media'] = []  # Список для хранения путей к загруженным медиафайлам
-    print(f"DEBUG: Состояние установлено в PHOTO (текущее состояние: {context.user_data['state']})")
+    context.user_data['state'] = 'MEDIA'
+    context.user_data['media'] = []  # Список для хранения всех загружаемых файлов
 
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка медиа (фото или видео)."""
-    if context.user_data.get('state') != 'PHOTO':
-        print(f"DEBUG: Получено медиа в некорректном состоянии: {context.user_data.get('state')}")
+    if context.user_data.get('state') != 'MEDIA':
+        logger.warning("Пользователь попытался загрузить файл вне состояния 'MEDIA'.")
         return
 
     media_file = None
     file_extension = None
 
+    # Проверяем, что это фото или видео
     if update.message.photo:
-        # Если это фото
         media_file = update.message.photo[-1]
         file_extension = "jpg"
     elif update.message.video:
-        # Если это видео
         media_file = update.message.video
         file_extension = "mp4"
 
     if media_file is None:
+        logger.warning("Пользователь загрузил неподдерживаемый формат файла.")
         await update.message.reply_text("Поддерживаются только фото и видео.")
         return
 
-    # Получаем информацию о файле
+    # Сохраняем файл с уникальным именем
     file = await context.bot.get_file(media_file.file_id)
-
-    # Проверяем размер файла
-    max_file_size = 50 * 1024 * 1024  # 50 MB
-    if file.file_size > max_file_size:
-        await update.message.reply_text(
-            "Файл слишком большой (максимальный размер 50 МБ). Пожалуйста, загрузите файл меньшего размера."
-        )
-        print(f"DEBUG: Файл отклонён из-за превышения лимита размера: {file.file_size} байт")
-        return
-
-    # Сохраняем файл
     file_path = f"temp_{update.message.chat_id}_{len(context.user_data['media']) + 1}.{file_extension}"
     await file.download_to_drive(file_path)
 
-    # Добавляем путь к медиафайлу в список
+    # Добавляем путь к файлу в список
     context.user_data['media'].append(file_path)
-    print(f"DEBUG: Медиафайл сохранён: {file_path} (текущее количество файлов: {len(context.user_data['media'])})")
-
-    await update.message.reply_text(
-        "Медиа добавлено. Вы можете загрузить еще одно фото или видео, либо нажать 'Завершить загрузку фото'."
-    )
+    logger.info(f"Файл {file_path} добавлен в список медиа.")
+    await update.message.reply_text("Файл добавлен. Вы можете загрузить еще один файл или завершить загрузку.")
 
 
-
-async def finish_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Завершение загрузки фотографий."""
+async def finish_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if not context.user_data.get('photos'):
-        await query.message.reply_text(
-            "Вы не загрузили ни одной фотографии. Пожалуйста, загрузите хотя бы одну фотографию.")
+    if not context.user_data.get('media'):
+        logger.warning("Пользователь нажал 'Завершить загрузку', не добавив медиа.")
+        await query.message.reply_text("Вы не загрузили ни одного файла. Пожалуйста, загрузите хотя бы один файл.")
         return
 
+    logger.info(f"Пользователь завершил загрузку медиа. Файлы: {context.user_data['media']}")
     context.user_data['state'] = 'ORDER_NUMBER'
-    print(f"DEBUG: Переход к вводу номера заказа (текущее состояние: {context.user_data['state']})")
-    await query.message.reply_text("Введите номер заказа (только цифры, без пробелов):")
+    await query.message.reply_text("Введите номер заказа (только цифры):")
 
 
 async def handle_order_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка номера заказа."""
     if context.user_data.get('state') != 'ORDER_NUMBER':
-        print(f"DEBUG: Получен номер заказа в некорректном состоянии: {context.user_data.get('state')}")
         return
 
     order_number = update.message.text
-    print(f"DEBUG: Получен номер заказа: {order_number}")
-
     if not check_folder_exists(order_number):
-        await update.message.reply_text(
-            "Папка для указанного заказа не найдена на Яндекс.Диске. Пожалуйста, введите корректный номер заказа."
-        )
-        # Состояние остается 'ORDER_NUMBER', чтобы пользователь мог ввести правильный номер заказа
-        print(
-            f"DEBUG: Папка не найдена, остаемся в состоянии ORDER_NUMBER (текущее состояние: {context.user_data['state']})")
+        await update.message.reply_text("Папка для указанного заказа не найдена. Введите корректный номер заказа.")
         return
 
+    logger.info(f"Номер заказа подтверждён: {order_number}")
     context.user_data['order_number'] = order_number
-    context.user_data['state'] = 'ORDER_SUCCESS'
-    print(
-        f"DEBUG: Папка найдена, задаём вопрос о том, всё ли прошло хорошо (текущее состояние: {context.user_data['state']})")
-
+    context.user_data['state'] = 'CONFIRM'
     await update.message.reply_text(
-        "Всё ли хорошо прошло?",
+        "Всё прошло хорошо?",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("Да", callback_data="yes"), InlineKeyboardButton("Нет", callback_data="no")]
         ])
     )
 
 
-async def handle_success_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка вопроса 'Всё ли прошло хорошо?'."""
+async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    context.user_data['success'] = query.data  # Сохраняем ответ ("yes" или "no")
-    context.user_data['state'] = 'DISTANCE'
-    print(f"DEBUG: Ответ на вопрос о заказе: {query.data} (текущее состояние: {context.user_data['state']})")
-
-    await query.message.reply_text("Введите расстояние до центра Самары (Только с десятичной точкой):")
-
-
-async def handle_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка ввода расстояния."""
-    if 'order_number' not in context.user_data:
-        await update.message.reply_text("Сначала введите номер заказа. Пожалуйста, введите номер заказа (только цифры, без пробелов):")
-        return
-
-    try:
-        # Пытаемся преобразовать ввод в число
-        distance = float(update.message.text)
-
-        # Проверяем, что ввод не равен номеру заказа
-        if distance == int(context.user_data['order_number']):
-            await update.message.reply_text("Это не расстояние, а номер заказа. Пожалуйста, введите расстояние в километрах.")
-            return
-
-        # Сохраняем расстояние в user_data
-        context.user_data['distance'] = distance
-        context.user_data['state'] = 'COMMENT'
-
-        print(f"DEBUG: Получено расстояние: {distance} км (текущее состояние: {context.user_data['state']})")
-        await update.message.reply_text("Оставьте комментарий (если комментария нет, поставьте прочерк - :")
-    except ValueError:
-        await update.message.reply_text("Пожалуйста, введите корректное число для расстояния.")
+    context.user_data['success'] = query.data  # Сохраняем ответ "yes" или "no"
+    logger.info(f"Пользователь подтвердил состояние: {'успешно' if query.data == 'yes' else 'неуспешно'}.")
+    context.user_data['state'] = 'COMMENT'
+    await query.message.reply_text("Оставьте комментарий (если комментария нет, введите прочерк):")
 
 
 async def handle_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка комментария."""
     if context.user_data.get('state') != 'COMMENT':
-        print(f"DEBUG: Получен комментарий в некорректном состоянии: {context.user_data.get('state')}")
         return
 
-    comment = update.message.text
-    context.user_data['comment'] = comment
+    context.user_data['comment'] = update.message.text
     context.user_data['state'] = 'FINISHED'
-    print(f"DEBUG: Получен комментарий: {comment} (текущее состояние: {context.user_data['state']})")
 
-    # Теперь загрузим фото на Яндекс.Диск и отправим отчет
+    logger.info("Загрузка файлов на Яндекс.Диск начата.")
     order_number = context.user_data['order_number']
     media_paths = context.user_data['media']
 
+    # Загрузка файлов на Яндекс.Диск
     for idx, media_path in enumerate(media_paths):
-        media_name = os.path.basename(media_path)
-        upload_successful = upload_to_yandex_disk(order_number, media_path, media_name)
-        if upload_successful:
-            await update.message.reply_text(f"Файл {idx + 1} успешно загружен на Яндекс.Диск.")
-            print(f"DEBUG: Файл {idx + 1} успешно загружен на Яндекс.Диск")
-        else:
-            await update.message.reply_text(f"Ошибка при загрузке файла {idx + 1} на Яндекс.Диск.")
-            print(f"DEBUG: Ошибка при загрузке файла {idx + 1} на Яндекс.Диск")
+        upload_successful = upload_to_yandex_disk(order_number, media_path, os.path.basename(media_path))
+        if not upload_successful:
+            logger.error(f"Ошибка при загрузке файла {idx + 1}: {media_path}")
+        os.remove(media_path)  # Удаляем временный файл
 
-    # Отправляем отчёт в группу
+    logger.info("Файлы успешно загружены. Отправка отчёта в группу.")
+    # Отправка отчета в группу
     success_message = "Да" if context.user_data['success'] == "yes" else "Нет"
     report_caption = (
         f"📋 **Новый отчёт о заказе**:\n"
         f"📦 Номер заказа: {order_number}\n"
         f"✅ Всё прошло хорошо: {success_message}\n"
-        f"📏 Расстояние до центра Самары: {context.user_data['distance']} км\n"
-        f"📝 Комментарий: {comment if comment else 'Нет комментария'}"
+        f"📝 Комментарий: {context.user_data['comment']}"
     )
-    try:
-        with open(media_paths[0], "rb") as photo:
-            await context.bot.send_photo(
-                chat_id=COMPANY_GROUP_ID,
-                photo=photo,
-                caption=report_caption,
-                parse_mode="Markdown"
-            )
-        print("DEBUG: Отчёт успешно отправлен в группу")
-    except Exception as e:
-        await update.message.reply_text(f"Не удалось отправить отчёт в группу: {e}")
-        print(f"ERROR: Не удалось отправить отчёт в группу: {e}")
+    await context.bot.send_message(chat_id=COMPANY_GROUP_ID, text=report_caption)
 
-    # Удаляем временные файлы
-    for media_path in media_paths:
-        os.remove(media_path)
-    print("DEBUG: Все временные файлы удалены")
-
-    # Предлагаем начать новый заказ
+    # Очистка данных и предложение начать новый заказ
+    context.user_data.clear()
+    logger.info("Отчёт отправлен. Данные пользователя очищены.")
     await update.message.reply_text(
         "Отчёт успешно отправлен! Хотите загрузить новый заказ?",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Начать новый заказ", callback_data="restart")]])
     )
-    context.user_data.clear()
-
 
 async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Перезапуск процесса."""
     query = update.callback_query
     await query.answer()
-    await query.message.delete()  # Удаляем предыдущее сообщение с кнопкой
-
-    # Перезапуск с вызовом функции start через callback_query
-    await query.message.reply_text(
-        "Привет! Пожалуйста, загрузите фото с выполнения заказа.",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Завершить загрузку фото", callback_data="finish_photos")],
-            [InlineKeyboardButton("Отменить", callback_data="cancel")]
-        ])
-    )
-    context.user_data['state'] = 'PHOTO'
-    context.user_data['photos'] = []  # Список для хранения путей к загруженным фотографиям
-    print(f"DEBUG: Состояние установлено в PHOTO (текущее состояние: {context.user_data['state']})")
+    await start(update, context)
 
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отмена текущего процесса."""
-    query = update.callback_query
-    await query.answer()
-    await query.message.reply_text("Действие отменено. Введите /start, чтобы начать заново.")
-    context.user_data.clear()
-
-
-# === Основной код ===
-
+# Основной код
 def main():
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # Добавляем обработчики, разделенные для каждого состояния
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler((filters.PHOTO | filters.VIDEO) & filters.ChatType.PRIVATE, handle_media))
-    application.add_handler(CallbackQueryHandler(finish_photos, pattern="^finish_photos$"))
-    application.add_handler(
-        MessageHandler(filters.TEXT & filters.ChatType.PRIVATE & filters.Regex(r'^\d+$'), handle_order_number))
-    application.add_handler(CallbackQueryHandler(handle_success_question, pattern="^(yes|no)$"))
-    application.add_handler(
-        MessageHandler(filters.TEXT & filters.ChatType.PRIVATE & filters.Regex(r'^\d+(\.\d+)?$'), handle_distance))
-    application.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE & ~filters.COMMAND, handle_comment))
+    application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_media))
+    application.add_handler(CallbackQueryHandler(finish_media, pattern="^finish_media$"))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex(r'^\d+$'), handle_order_number))
+    application.add_handler(CallbackQueryHandler(handle_confirm, pattern="^(yes|no)$"))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_comment))
     application.add_handler(CallbackQueryHandler(restart, pattern="^restart$"))
-    application.add_handler(CallbackQueryHandler(cancel, pattern="^cancel$"))
 
     application.run_polling()
 
