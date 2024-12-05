@@ -54,28 +54,56 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
     )
     context.user_data['state'] = 'PHOTO'
-    context.user_data['photos'] = []  # Список для хранения путей к загруженным фотографиям
+    context.user_data['media'] = []  # Список для хранения путей к загруженным медиафайлам
     print(f"DEBUG: Состояние установлено в PHOTO (текущее состояние: {context.user_data['state']})")
 
 
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка фото."""
+async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка медиа (фото или видео)."""
     if context.user_data.get('state') != 'PHOTO':
-        print(f"DEBUG: Получено фото в некорректном состоянии: {context.user_data.get('state')}")
+        print(f"DEBUG: Получено медиа в некорректном состоянии: {context.user_data.get('state')}")
         return
 
-    print("DEBUG: Получено фото, начинаем обработку")
-    photo = update.message.photo[-1]
-    file = await context.bot.get_file(photo.file_id)
-    file_path = f"temp_{update.message.chat_id}_{len(context.user_data['photos']) + 1}.jpg"
+    media_file = None
+    file_extension = None
+
+    if update.message.photo:
+        # Если это фото
+        media_file = update.message.photo[-1]
+        file_extension = "jpg"
+    elif update.message.video:
+        # Если это видео
+        media_file = update.message.video
+        file_extension = "mp4"
+
+    if media_file is None:
+        await update.message.reply_text("Поддерживаются только фото и видео.")
+        return
+
+    # Получаем информацию о файле
+    file = await context.bot.get_file(media_file.file_id)
+
+    # Проверяем размер файла
+    max_file_size = 50 * 1024 * 1024  # 50 MB
+    if file.file_size > max_file_size:
+        await update.message.reply_text(
+            "Файл слишком большой (максимальный размер 50 МБ). Пожалуйста, загрузите файл меньшего размера."
+        )
+        print(f"DEBUG: Файл отклонён из-за превышения лимита размера: {file.file_size} байт")
+        return
+
+    # Сохраняем файл
+    file_path = f"temp_{update.message.chat_id}_{len(context.user_data['media']) + 1}.{file_extension}"
     await file.download_to_drive(file_path)
 
-    # Добавляем путь к фото в список фотографий пользователя
-    context.user_data['photos'].append(file_path)
-    print(f"DEBUG: Фото сохранено, текущее количество фото: {len(context.user_data['photos'])}")
+    # Добавляем путь к медиафайлу в список
+    context.user_data['media'].append(file_path)
+    print(f"DEBUG: Медиафайл сохранён: {file_path} (текущее количество файлов: {len(context.user_data['media'])})")
 
     await update.message.reply_text(
-        "Фото добавлено. Вы можете загрузить еще одно фото или нажать 'Завершить загрузку фото'.")
+        "Медиа добавлено. Вы можете загрузить еще одно фото или видео, либо нажать 'Завершить загрузку фото'."
+    )
+
 
 
 async def finish_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -174,17 +202,17 @@ async def handle_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Теперь загрузим фото на Яндекс.Диск и отправим отчет
     order_number = context.user_data['order_number']
-    photo_paths = context.user_data['photos']
+    media_paths = context.user_data['media']
 
-    # Загружаем все фото на Яндекс.Диск
-    for idx, photo_path in enumerate(photo_paths):
-        upload_successful = upload_to_yandex_disk(order_number, photo_path, os.path.basename(photo_path))
+    for idx, media_path in enumerate(media_paths):
+        media_name = os.path.basename(media_path)
+        upload_successful = upload_to_yandex_disk(order_number, media_path, media_name)
         if upload_successful:
-            await update.message.reply_text(f"Фото {idx + 1} успешно загружено на Яндекс.Диск.")
-            print(f"DEBUG: Фото {idx + 1} успешно загружено на Яндекс.Диск")
+            await update.message.reply_text(f"Файл {idx + 1} успешно загружен на Яндекс.Диск.")
+            print(f"DEBUG: Файл {idx + 1} успешно загружен на Яндекс.Диск")
         else:
-            await update.message.reply_text(f"Ошибка при загрузке фото {idx + 1} на Яндекс.Диск.")
-            print(f"DEBUG: Ошибка при загрузке фото {idx + 1} на Яндекс.Диск")
+            await update.message.reply_text(f"Ошибка при загрузке файла {idx + 1} на Яндекс.Диск.")
+            print(f"DEBUG: Ошибка при загрузке файла {idx + 1} на Яндекс.Диск")
 
     # Отправляем отчёт в группу
     success_message = "Да" if context.user_data['success'] == "yes" else "Нет"
@@ -196,7 +224,7 @@ async def handle_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📝 Комментарий: {comment if comment else 'Нет комментария'}"
     )
     try:
-        with open(photo_paths[0], "rb") as photo:
+        with open(media_paths[0], "rb") as photo:
             await context.bot.send_photo(
                 chat_id=COMPANY_GROUP_ID,
                 photo=photo,
@@ -209,8 +237,8 @@ async def handle_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"ERROR: Не удалось отправить отчёт в группу: {e}")
 
     # Удаляем временные файлы
-    for photo_path in photo_paths:
-        os.remove(photo_path)
+    for media_path in media_paths:
+        os.remove(media_path)
     print("DEBUG: Все временные файлы удалены")
 
     # Предлагаем начать новый заказ
@@ -255,7 +283,7 @@ def main():
 
     # Добавляем обработчики, разделенные для каждого состояния
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.PHOTO & filters.ChatType.PRIVATE, handle_photo))
+    application.add_handler(MessageHandler((filters.PHOTO | filters.VIDEO) & filters.ChatType.PRIVATE, handle_media))
     application.add_handler(CallbackQueryHandler(finish_photos, pattern="^finish_photos$"))
     application.add_handler(
         MessageHandler(filters.TEXT & filters.ChatType.PRIVATE & filters.Regex(r'^\d+$'), handle_order_number))
