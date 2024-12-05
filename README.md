@@ -1,3 +1,4 @@
+<h1>Привязка к яндекс диску</h1>
 Для получения API Яндекса необходимо зайти на сайт документации - https://yandex.ru/dev/disk/doc/ru/concepts/quickstart#quickstart__oauth
 
 Пройти по заголовку - Авторизация приложения с помощью OAuth-токена
@@ -8,7 +9,5 @@
 
 Перед этим не забываем на страннице https://oauth.yandex.ru/ создать проект и в нём добавить права на: yadisk:disk, cloud_api:disk.app_folder, cloud_api:disk.read, cloud_api:disk.write, cloud_api:disk.info.
 
-
-
-
+<h2>Настройка хоста</h2>
 
