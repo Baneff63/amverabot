@@ -59,9 +59,10 @@ def upload_to_yandex_disk(order_number, file_path, file_name):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Пользователь {update.effective_user.username} начал новый заказ.")
 
-    # Используем query.message вместо update.message, так как update - это CallbackQuery
-    query = update.callback_query if update.callback_query else update.message
-    await query.message.reply_text(
+    # Проверяем, если это CallbackQuery, используем query.message, иначе update.message для команды /start
+    message = update.message if update.message else update.callback_query.message
+
+    await message.reply_text(
         "Привет! Пожалуйста, загрузите фото или видео с выполнения заказа. Вы можете загрузить несколько файлов. Нажмите 'Завершить загрузку', когда закончите.",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("Завершить загрузку", callback_data="finish_media")],

@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="55fe212f-07ed-4a5e-8874-5533d6acc8c3" name="Changes" comment="Добавлена возможность загружать видео">
+    <list default="true" id="55fe212f-07ed-4a5e-8874-5533d6acc8c3" name="Changes" comment="Bug Fix">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bot.py" beforeDir="false" afterPath="$PROJECT_DIR$/bot.py" afterDir="false" />
     </list>
@@ -172,7 +172,15 @@
       <option name="project" value="LOCAL" />
       <updated>1733408273947</updated>
     </task>
-    <option name="localTasksCounter" value="13" />
+    <task id="LOCAL-00013" summary="Bug Fix">
+      <option name="closed" value="true" />
+      <created>1733627380924</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1733627380924</updated>
+    </task>
+    <option name="localTasksCounter" value="14" />
     <servers />
   </component>
   <component name="UnknownFeatures">
@@ -206,6 +214,7 @@
     <MESSAGE value="token" />
     <MESSAGE value="readfile" />
     <MESSAGE value="Добавлена возможность загружать видео" />
-    <option name="LAST_COMMIT_MESSAGE" value="Добавлена возможность загружать видео" />
+    <MESSAGE value="Bug Fix" />
+    <option name="LAST_COMMIT_MESSAGE" value="Bug Fix" />
   </component>
 </project>
