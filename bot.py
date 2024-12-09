@@ -463,7 +463,7 @@ def get_address_from_coordinates(latitude, longitude):
 async def handle_comment(update: Update, context: ContextTypes.DEFAULT_TYPE,):
     logging.info(f"context.user_data перед обработкой: {context.user_data}")
 
-    success_message = "загружается" if context.user_data.get('success') == "yes" else "Нет"
+    success_message = "загружается..." if context.user_data.get('success') == "yes" else "Нет"
     await update.message.reply_text(f"Отчёт {success_message}")
 
     if context.user_data.get('state') != 'COMMENT':
