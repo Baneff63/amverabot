@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 
 
+
 # === Логирование ===
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -204,18 +205,50 @@ def upload_to_yandex_disk(order_number, file_path, file_name):
     return False
 
 
+# Админ панель
+
+from telegram import Update
+from telegram.ext import ContextTypes
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()  # Подтверждаем получение callback'а
+
+    # Удаляем сообщение, если есть ID
+    start_message_id = context.user_data.get('start_message_id')
+    if start_message_id:
+        try:
+            await context.bot.delete_message(chat_id=query.message.chat_id, message_id=start_message_id)
+        except Exception as e:
+            logger.error(f"Ошибка удаления сообщения: {e}")
+
+    # Выполнение действия в зависимости от callback_data
+    if query.data == "finish_media":
+        await query.message.reply_text("Вы завершили загрузку.")
+    elif query.data == "cancel":
+        await query.message.reply_text("Вы отменили загрузку.")
+    elif query.data == "handle_profile":
+        await query.message.reply_text("Ваш профиль: ...")  # Здесь добавьте логику для профиля
+
+
+
+
+#Функционал бота
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Пользователь {update.effective_user.username} начал новый заказ.")
 
     user_id = update.effective_user.id  # Получаем ID пользователя
     username = update.effective_user.full_name  # Получаем имя пользователя
-    add_user(user_id, username)  # Добавляем пользователя в базу данных, если он еще не зарегистрирован
+    add_user(user_id, username)  # Добавляем пользователя в базу данных, если он ещё не зарегистрирован
 
-    # Инициализация данных, если они ещё не установлены
+    # Инициализация данных
     if 'orders_count' not in context.user_data:
-        context.user_data['orders_count'] = 0  # Количество заказов
+        context.user_data['orders_count'] = 0
     if 'last_orders' not in context.user_data:
-        context.user_data['last_orders'] = []  # Список последних заказов
+        context.user_data['last_orders'] = []
 
     # Кнопки для интерфейса
     keyboard = [
@@ -225,16 +258,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     # Отправляем сообщение с кнопками
-    await update.message.reply_text(
+    message = await update.message.reply_text(
         "Привет! Пожалуйста, загрузите фото или видео с выполнения заказа. Вы можете загрузить несколько файлов. Нажмите 'Завершить загрузку', когда закончите.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+    # Сохраняем ID сообщения для последующего удаления
+    context.user_data['start_message_id'] = message.message_id
+
     # Сохраняем состояние пользователя
     context.user_data['state'] = 'MEDIA'
-    context.user_data['media'] = []  # Список для хранения всех загружаемых файлов
-    context.user_data['location'] = None  # Для хранения геопозиции
-    context.user_data['order_number'] = None  # Для хранения номера заказа
+    context.user_data['media'] = []
+    context.user_data['location'] = None
+    context.user_data['order_number'] = None
+
 
 
 
@@ -309,20 +346,26 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 from telegram.ext import CommandHandler, CallbackQueryHandler
 
 # Обработчик медиа (фото/видео)
+import os
+from uuid import uuid4
+
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('state') != 'MEDIA':
         logger.warning("Пользователь попытался загрузить файл вне состояния 'MEDIA'.")
         return
 
     media_file = None
+    media_type = None
     file_extension = None
 
     # Проверяем, что это фото или видео
     if update.message.photo:
-        media_file = update.message.photo[-1]
+        media_file = update.message.photo[-1]  # Берём наивысшее качество
+        media_type = "photo"
         file_extension = "jpg"
     elif update.message.video:
         media_file = update.message.video
+        media_type = "video"
         file_extension = "mp4"
 
     if media_file is None:
@@ -334,15 +377,34 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Файл слишком большой. Поддерживаются файлы до 20 МБ.")
         return
 
-    # Сохраняем файл с уникальным именем
+    # Генерируем уникальное имя файла
+    unique_filename = f"{uuid4().hex}.{file_extension}"
+
+    # Создаём временный каталог, если его нет
+    temp_dir = "temp"
+    os.makedirs(temp_dir, exist_ok=True)
+
+    # Формируем полный путь для сохранения файла
+    file_path = os.path.join(temp_dir, unique_filename)
+
+    # Скачиваем файл и сохраняем его
     file = await context.bot.get_file(media_file.file_id)
-    file_path = f"temp_{update.message.chat_id}_{len(context.user_data['media']) + 1}.{file_extension}"
     await file.download_to_drive(file_path)
 
-    # Добавляем путь к файлу в список
-    context.user_data['media'].append(file_path)
+    # Добавляем информацию о файле в список `media`
+    if 'media' not in context.user_data:
+        context.user_data['media'] = []
+
+    context.user_data['media'].append({
+        'type': media_type,       # Тип медиа (photo или video)
+        'file_id': media_file.file_id,  # ID файла
+        'local_path': file_path   # Локальный путь к файлу
+    })
+
     logger.info(f"Файл {file_path} добавлен в список медиа.")
     await update.message.reply_text("Файл добавлен. Вы можете загрузить еще один файл или завершить загрузку.")
+
+
 
 # Обработчик завершения загрузки медиа
 async def finish_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -395,12 +457,17 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['location'] = location  # Сохраняем геопозицию
     logger.info(f"Геопозиция получена: {location.latitude}, {location.longitude}")
 
+    # Инициализация переменной geo (если это ещё не было сделано ранее)
+    geo = ""
+
     # Формируем ссылку на Яндекс.Карты
     yandex_maps_url = f"https://yandex.ru/maps/?ll={location.longitude},{location.latitude}&z=15"
 
-    # Отправляем пользователю информацию
-    await update.message.reply_text(
-        f"Геопозиция сохранена. Вы можете просмотреть её на Яндекс.Картах: {yandex_maps_url}")
+    # Формируем сообщение для пользователя
+    geo += f"Геопозиция сохранена. Вы можете просмотреть её на [Яндекс.Картах]({yandex_maps_url})\n"
+
+    # Отправка сообщения с геопозицией
+    await update.message.reply_text(text=geo, parse_mode='Markdown')
 
     # Переход к запросу комментария
     context.user_data['state'] = 'CONFIRM'
@@ -460,11 +527,8 @@ def get_address_from_coordinates(latitude, longitude):
 
 
 # Обработчик комментария
-async def handle_comment(update: Update, context: ContextTypes.DEFAULT_TYPE,):
+async def handle_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info(f"context.user_data перед обработкой: {context.user_data}")
-
-    success_message = "загружается..." if context.user_data.get('success') == "yes" else "Нет"
-    await update.message.reply_text(f"Отчёт {success_message}")
 
     if context.user_data.get('state') != 'COMMENT':
         return
@@ -473,19 +537,22 @@ async def handle_comment(update: Update, context: ContextTypes.DEFAULT_TYPE,):
     context.user_data['comment'] = update.message.text
     context.user_data['state'] = 'FINISHED'
 
-    # Логируем начало загрузки файлов
-    logger.info("Загрузка файлов на Яндекс.Диск начата.")
+    # Логируем начало обработки
+    logger.info("Обработка завершённого заказа начата.")
     order_number = context.user_data['order_number']
-    media_paths = context.user_data['media']
+    media_files = context.user_data.get('media', [])
 
-    # Загрузка файлов на Яндекс.Диск
-    for idx, media_path in enumerate(media_paths):
-        upload_successful = upload_to_yandex_disk(order_number, media_path, os.path.basename(media_path))
-        if not upload_successful:
-            logger.error(f"Ошибка при загрузке файла {idx + 1}: {media_path}")
-        os.remove(media_path)  # Удаляем временный файл
+    # Загружаем файлы на Яндекс.Диск
+    for idx, media in enumerate(media_files):
+        try:
+            local_path = media['local_path']
+            upload_successful = upload_to_yandex_disk(order_number, local_path, os.path.basename(local_path))
+            if not upload_successful:
+                logger.error(f"Ошибка при загрузке файла {idx + 1}: {local_path}")
+        except Exception as e:
+            logger.error(f"Ошибка при обработке файла {idx + 1}: {e}")
 
-    logger.info("Файлы успешно загружены. Отправка отчёта в группу.")
+    logger.info("Файлы успешно обработаны. Отправка отчёта в группу.")
 
     # Обновление данных профиля в базе данных
     user_id = update.effective_user.id
@@ -499,11 +566,11 @@ async def handle_comment(update: Update, context: ContextTypes.DEFAULT_TYPE,):
         comment=context.user_data['comment'],
     )
 
+    # Формирование отчёта
     user = update.effective_user
     user_name = user.name if user.name else "Неизвестный пользователь"
 
-    # Формирование отчета
-    success_message = "Да" if context.user_data['success'] == "yes" else "Нет"
+    success_message = "Да" if context.user_data.get('success') == "yes" else "Нет"
     report_caption = (
         f"Новый отчёт от пользователя: {user_name}\n"
         f"📦 Номер заказа: {order_number}\n"
@@ -526,12 +593,43 @@ async def handle_comment(update: Update, context: ContextTypes.DEFAULT_TYPE,):
         # Добавляем адрес и кнопку в отчет
         report_caption += f"📍 Геопозиция: {address}  [Смотреть на карте]({yandex_maps_url})\n"
 
-    # Отправка отчета в группу
-    await context.bot.send_message(chat_id=COMPANY_GROUP_ID, text=report_caption, parse_mode='Markdown')
 
-    # Очистка данных и предложение начать новый заказ
+
+        # Отправка медиа в отчёт
+        for media in media_files:
+            try:
+                media_path = media['local_path']
+                media_type = media['type']
+
+                # Проверка существования файла
+                if not os.path.exists(media_path):
+                    logger.error(f"Файл {media_path} не найден. Пропуск отправки.")
+                    continue
+
+                # Отправка фото или видео
+                if media_type == "photo":
+                    with open(media_path, 'rb') as photo:
+                        await context.bot.send_photo(chat_id=COMPANY_GROUP_ID, photo=photo, caption=report_caption,parse_mode='Markdown')
+                elif media_type == "video":
+                    with open(media_path, 'rb') as video:
+                        await context.bot.send_video(chat_id=COMPANY_GROUP_ID, video=video, caption=report_caption,parse_mode='Markdown')
+
+                logger.info(f"Содержимое media_files перед отправкой: {media_files}")
+                logger.info(f"Текст отчёта: {report_caption}")
+
+                # Удаление файла после отправки
+                os.remove(media_path)
+                logger.info(f"Файл {media_path} успешно отправлен и удалён.")
+                # После отправки медиа отчёт можно отправить только с первой частью текста
+                report_caption = None
+            except Exception as e:
+                logger.error(f"Ошибка при отправке медиа {media_path}: {e}")
+
+        # Очистка данных пользователя
     context.user_data.clear()
     logger.info("Отчёт отправлен. Данные пользователя очищены.")
+
+    # Предложение начать новый заказ
     await update.message.reply_text(
         "Отчёт успешно отправлен! Хотите загрузить новый заказ?",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Начать новый заказ", callback_data="restart")]]),
@@ -577,6 +675,7 @@ def main():
     application.add_handler(CallbackQueryHandler(restart, pattern="^restart$"))
     application.add_handler(CallbackQueryHandler(handle_profile, pattern='^profile$'))
     application.add_handler(CallbackQueryHandler(cancel, pattern='^cancel$'))
+    application.add_handler(CallbackQueryHandler(button_handler))
 
     # Добавляем обработчик для геопозиции
     application.add_handler(MessageHandler(filters.LOCATION, handle_location))  # Обрабатываем геопозицию
