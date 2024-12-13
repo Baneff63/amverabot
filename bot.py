@@ -205,7 +205,6 @@ def upload_to_yandex_disk(order_number, file_path, file_name):
     return False
 
 
-# Админ панель
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -457,7 +456,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['location'] = location  # Сохраняем геопозицию
     logger.info(f"Геопозиция получена: {location.latitude}, {location.longitude}")
 
-    # Инициализация переменной geo (если это ещё не было сделано ранее)
+    
     geo = ""
 
     # Формируем ссылку на Яндекс.Карты
