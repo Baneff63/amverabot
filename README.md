@@ -45,24 +45,28 @@
    
 ![{C1D12E90-8A56-4F56-8F26-8DD85A4134AE}](https://github.com/user-attachments/assets/fd2e822f-fc72-44b3-80e4-c0af5882a38c)
 
-3. История выполненных заказов.
+2. История выполненных заказов.
 
 ![{AB356877-B706-4297-839E-6D3000C9C4F0}](https://github.com/user-attachments/assets/f48752db-cac0-4753-8475-f27c84f745ea)
 
-4. Обработка ботом геолокации.
+3. Обработка ботом геолокации.
 
 ![{9036CE47-CDAA-41BD-877D-ACB994F56847}](https://github.com/user-attachments/assets/ed27fe4c-ac29-4ad5-8036-cb6646e64b1b)
 
-5. Обновлён отчёт, теперь в отчёт попадает медиафайл, загруженный пользователем.
+4. Обновлён отчёт, теперь в отчёт попадает медиафайл, загруженный пользователем.
 
 ![{2FE30BD5-C90C-4EB4-A051-152EBE7488A9}](https://github.com/user-attachments/assets/33c202c9-d955-45f2-bbfe-ee5cabc3b1b1)
 
 Обработка геолокации была реализована с помощью API ключа Яндекс Карт.
 Необходимо зайти на сайт Яндекс.Кабинет разработчика — https://developer.tech.yandex.ru/services.
+
 Далее зарегистрировать новый API ключ. 
+
 ![{FB7AFC8B-F5AC-4872-819C-4AC8185D5D17}](https://github.com/user-attachments/assets/4a5d9b4b-a25c-4b78-94b1-f916170f7045)
 И выбрать подходящий тариф.
+
 После чего нам доступен API ключ Яндекс Карт, с помощью которого мы можем реализовывать Яндекс Карты под наши задачи.
+
 ![{BCF866D1-956C-4054-8B12-22497EF4330B}](https://github.com/user-attachments/assets/8e96b75a-93a4-44a9-abf4-e0ff2c546759)
 
 
